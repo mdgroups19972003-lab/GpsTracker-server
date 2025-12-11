@@ -1,14 +1,16 @@
+// src/module/track/service.ts
 import axios from "axios";
 import { pool, createVehicle, getVehicleByImei, insertPosition } from "./model";
+import { getIo } from "../../socket"; // <-- socket helper
 
 const BASE_URL =
   process.env.VOLTY_BASE_URL ?? "http://india.voltysoft.com/api/v12/vehicles";
 const API_KEY = process.env.VOLTY_API_KEY ?? "";
-let FETCH_INTERVAL_MS = Number(process.env.FETCH_INTERVAL_MS ?? 40000);
+let FETCH_INTERVAL_MS = Number(process.env.FETCH_INTERVAL_MS ?? 5000);
 
-// enforce a sensible minimum (e.g., 30s) so accidental tiny values don't hammer provider
-if (!Number.isFinite(FETCH_INTERVAL_MS) || FETCH_INTERVAL_MS < 30000) {
-  FETCH_INTERVAL_MS = 40000;
+// allow lower values (minimum = 1 second)
+if (!Number.isFinite(FETCH_INTERVAL_MS) || FETCH_INTERVAL_MS < 1000) {
+  FETCH_INTERVAL_MS = 5000;
 }
 
 if (!API_KEY) {
@@ -68,7 +70,8 @@ export async function startTracking(vehicleId: number, name: string, imei: strin
         return;
       }
 
-      await insertPosition({
+      // save and capture saved row (camelCase) from model.insertPosition
+      const saved = await insertPosition({
         vehicleId: vehicleId,
         lat: parsed.lat,
         lon: parsed.lon,
@@ -81,6 +84,17 @@ export async function startTracking(vehicleId: number, name: string, imei: strin
       console.log(
         `Stored position for vehicleId=${vehicleId} imei=${imei} (${parsed.lat}, ${parsed.lon})`
       );
+
+      // Emit via Socket.IO to room `vehicle_<vehicleId>`
+      try {
+        const io = getIo(); // throws if not initialized; catch below
+        const room = `vehicle_${vehicleId}`;
+        // Emit the saved position object — frontend will receive this
+        io.to(room).emit("position", saved);
+      } catch (emitErr: any) {
+        // Socket might not be initialized (e.g., tests). Don't crash — just warn.
+        console.warn("Socket emit skipped (not initialized?):", emitErr?.message ?? emitErr);
+      }
     } catch (err: any) {
       // include response info if available to help debugging rate limits / auth errors
       if (err.response) {
@@ -95,7 +109,7 @@ export async function startTracking(vehicleId: number, name: string, imei: strin
     }
   };
 
-  // immediate first fetch (fire-and-forget but awaited so caller sees first attempt)
+  // immediate first fetch (awaited so caller sees first attempt)
   await doFetch();
 
   const handle = setInterval(doFetch, FETCH_INTERVAL_MS);
