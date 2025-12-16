@@ -1,12 +1,12 @@
 // src/module/track/service.ts
 import axios from "axios";
 import { pool, createVehicle, getVehicleByImei, insertPosition } from "./model";
-import { getIo } from "../../socket"; // <-- socket helper
+// import { getIo } from "../../socket"; // <-- socket helper
 
 const BASE_URL =
   process.env.VOLTY_BASE_URL ?? "http://india.voltysoft.com/api/v12/vehicles";
 const API_KEY = process.env.VOLTY_API_KEY ?? "";
-let FETCH_INTERVAL_MS = Number(process.env.FETCH_INTERVAL_MS ?? 5000);
+let FETCH_INTERVAL_MS = Number(process.env.FETCH_INTERVAL_MS ?? 2000);
 
 // allow lower values (minimum = 1 second)
 if (!Number.isFinite(FETCH_INTERVAL_MS) || FETCH_INTERVAL_MS < 1000) {
@@ -24,7 +24,7 @@ function buildUrl(name: string, imei: string) {
   return `${BASE_URL}/${encodeURIComponent(name)}/${encodeURIComponent(imei)}`;
 }
 
-async function fetchExternalVehicle(name: string, imei: string) {
+export async function fetchExternalVehicle(name: string, imei: string) {
   const url = buildUrl(name, imei);
   const res = await axios.get(url, {
     headers: {
@@ -86,15 +86,15 @@ export async function startTracking(vehicleId: number, name: string, imei: strin
       );
 
       // Emit via Socket.IO to room `vehicle_<vehicleId>`
-      try {
-        const io = getIo(); // throws if not initialized; catch below
-        const room = `vehicle_${vehicleId}`;
-        // Emit the saved position object — frontend will receive this
-        io.to(room).emit("position", saved);
-      } catch (emitErr: any) {
-        // Socket might not be initialized (e.g., tests). Don't crash — just warn.
-        console.warn("Socket emit skipped (not initialized?):", emitErr?.message ?? emitErr);
-      }
+      // try {
+      //   const io = getIo(); // throws if not initialized; catch below
+      //   const room = `vehicle_${vehicleId}`;
+      //   // Emit the saved position object — frontend will receive this
+      //   io.to(room).emit("position", saved);
+      // } catch (emitErr: any) {
+      //   // Socket might not be initialized (e.g., tests). Don't crash — just warn.
+      //   console.warn("Socket emit skipped (not initialized?):", emitErr?.message ?? emitErr);
+      // }
     } catch (err: any) {
       // include response info if available to help debugging rate limits / auth errors
       if (err.response) {

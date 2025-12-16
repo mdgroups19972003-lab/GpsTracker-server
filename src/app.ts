@@ -6,10 +6,14 @@ import bodyParser from "body-parser";
 import http from "http";                    // <-- Add this
 import trackRouter from "./module/track/route";
 import { initDb } from "./module/track/model";
-import { initSocket } from "./socket";      // <-- Add this
+// import { initSocket } from "./socket"; 
+import { initSocketServer } from "./socket";     // <-- Add this
+import cors from "cors";
 
 const app = express();
 app.use(bodyParser.json());
+
+app.use(cors({origin:"*"}))
 
 app.use("/api/track", trackRouter);
 
@@ -23,9 +27,10 @@ async function start() {
     const server = http.createServer(app);
 
     // Initialize Socket.IO on this server
-    initSocket(server);
+    // initSocket(server);
+    initSocketServer(server);
 
-    server.listen(PORT, () => {
+    server.listen(PORT,"0.0.0.0", () => {
       console.log(`Server + WebSocket running on port ${PORT}`);
     });
   } catch (err) {

@@ -1,43 +1,75 @@
-// src/socket.ts
-import { Server as HttpServer } from "http";
-import { Server, Socket } from "socket.io";
+import http from "http";
+import WebSocket, { WebSocketServer } from "ws";
+import { fetchExternalVehicle } from "./module/track/service";
 
-let io: Server | undefined;
+export function initSocketServer(server: http.Server) {
+  const wss = new WebSocketServer({ noServer: true });
 
-export function initSocket(server: HttpServer) {
-  if (io) return io;
-  io = new Server(server, {
-    cors: {
-      origin: "*", // restrict in production
-      methods: ["GET", "POST"],
-    },
+  // 🔥 VERY IMPORTANT: upgrade handler
+  server.on("upgrade", (req, socket, head) => {
+    console.log("⚡ upgrade request:", req.url);
+
+    if (!req.url || !req.headers.host) {
+      socket.destroy();
+      return;
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const parts = url.pathname.split("/");
+
+    // Expected: /bus/track/:busId
+    if (parts[1] === "bus" && parts[2] === "track" && parts[3]) {
+      const busId = parts[3];
+
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        console.log("✅ handleUpgrade success");
+        wss.emit("connection", ws, req, busId);
+      });
+    } else {
+      console.log("❌ invalid WS path:", url.pathname);
+      socket.destroy();
+    }
   });
 
-  io.on("connection", (socket: Socket) => {
-    console.log("Socket connected:", socket.id);
+  // 🔥 THIS MUST FIRE
+  wss.on("connection", (ws: WebSocket, _req, busId: string) => {
+    console.log("🔥 WebSocket CONNECTED:", busId);
 
-    socket.on("subscribeVehicle", (vehicleId: number) => {
-      if (!vehicleId) return;
-      const room = `vehicle_${vehicleId}`;
-      socket.join(room);
-      console.log(`Socket ${socket.id} joined ${room}`);
+    const intervalId = setInterval(async() => {
+      console.log("⏱ interval running");
+
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          if (ws.readyState !== WebSocket.OPEN) return;
+
+          // 🔥 FETCH FROM DB
+          const location = await fetchExternalVehicle("DINESHAN","868329080834769");
+          console.log({location})
+
+          if (!location) return;
+
+          const payload = {
+            busId,
+            lat: location[0].lat,
+            lng: location[0].lon,
+            // timestamp: location.updated_at.getTime(),
+          };
+
+          ws.send(JSON.stringify(payload));
+        } catch (err) {
+          console.error("Interval DB error:", err);
+        }
+      }
+    }, 3000);
+
+    ws.on("close", () => {
+      console.log("❌ WebSocket closed:", busId);
+      clearInterval(intervalId);
     });
 
-    socket.on("unsubscribeVehicle", (vehicleId: number) => {
-      const room = `vehicle_${vehicleId}`;
-      socket.leave(room);
-      console.log(`Socket ${socket.id} left ${room}`);
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.log("Socket disconnected:", socket.id, reason);
+    ws.on("error", (err) => {
+      console.error("WS error:", err);
+      clearInterval(intervalId);
     });
   });
-
-  return io;
-}
-
-export function getIo() {
-  if (!io) throw new Error("Socket.io not initialized. Call initSocket(server) first.");
-  return io;
 }
